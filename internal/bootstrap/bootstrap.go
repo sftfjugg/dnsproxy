@@ -1,3 +1,5 @@
+// Package bootstrap provides types and functions to resolve upstream hostnames
+// and dial retrieved addresses.
 package bootstrap
 
 import (
@@ -17,6 +19,8 @@ import (
 // specified at initialization and ignores the addr.
 type DialHandler func(ctx context.Context, network, addr string) (conn net.Conn, err error)
 
+// ResolveDialContext returns a DialHandler that uses addresses resolved from
+// u using resolvers.
 func ResolveDialContext(
 	u *url.URL,
 	timeout time.Duration,
@@ -50,6 +54,8 @@ func ResolveDialContext(
 	return NewDialContext(timeout, resolverAddresses...), nil
 }
 
+// NewDialContext returns a DialHandler that dials to the addresses in addrs and
+// returns the first succeeded connection.
 func NewDialContext(timeout time.Duration, addrs ...string) (h DialHandler) {
 	dialer := &net.Dialer{
 		Timeout: timeout,

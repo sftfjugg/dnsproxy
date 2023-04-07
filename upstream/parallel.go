@@ -12,6 +12,7 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Resolver is an alias for bootstrap.Resolver to avoid the import cycle.
 type Resolver = bootstrap.Resolver
 
 // exchangeResult is a structure that represents result of exchangeAsync
