@@ -51,6 +51,8 @@ func SortIPAddrs(addrs []net.IPAddr, preferIPv6 bool) {
 	})
 }
 
+// SortNetIPAddrs sorts addrs in accordance with the protocol preferences.
+// Invalid addresses are sorted near the end.  Zones are ignored.
 func SortNetIPAddrs(addrs []netip.Addr, preferIPv6 bool) {
 	l := len(addrs)
 	if l <= 1 {
