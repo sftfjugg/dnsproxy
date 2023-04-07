@@ -7,6 +7,7 @@ package netutil
 
 import (
 	"net"
+	"net/netip"
 
 	glnetutil "github.com/AdguardTeam/golibs/netutil"
 	"golang.org/x/exp/slices"
@@ -47,5 +48,26 @@ func SortIPAddrs(addrs []net.IPAddr, preferIPv6 bool) {
 		}
 
 		return a.Less(b)
+	})
+}
+
+func SortNetIPAddrs(addrs []netip.Addr, preferIPv6 bool) {
+	l := len(addrs)
+	if l <= 1 {
+		return
+	}
+
+	slices.SortStableFunc(addrs, func(addrA, addrB netip.Addr) (sortsBefore bool) {
+		aIs4 := addrA.Is4()
+		bIs4 := addrB.Is4()
+		if aIs4 != bIs4 {
+			if aIs4 {
+				return !preferIPv6
+			}
+
+			return preferIPv6
+		}
+
+		return addrA.Less(addrB)
 	})
 }

@@ -3,13 +3,16 @@ package upstream
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/dnsproxy/internal/bootstrap"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 )
+
+type Resolver = bootstrap.Resolver
 
 // exchangeResult is a structure that represents result of exchangeAsync
 type exchangeResult struct {
@@ -145,79 +148,9 @@ func exchange(u Upstream, req *dns.Msg) (*dns.Msg, error) {
 	return reply, err
 }
 
-// lookupResult is a structure that represents result of lookup
-type lookupResult struct {
-	address []net.IPAddr // List of IP addresses
-	err     error        // Error
-}
-
 // LookupParallel starts parallel lookup for host ip with many Resolvers
 // First answer without error will be returned
 // Return nil and error if count of errors equals count of resolvers
-func LookupParallel(ctx context.Context, resolvers []*Resolver, host string) ([]net.IPAddr, error) {
-	size := len(resolvers)
-
-	if size == 0 {
-		return nil, errors.Error("no resolvers specified")
-	}
-	if size == 1 {
-		address, err := lookup(ctx, resolvers[0], host)
-		return address, err
-	}
-
-	// Size of channel must accommodate results of lookups from all resolvers
-	// Otherwise sending in channel will be locked
-	ch := make(chan *lookupResult, size)
-
-	for _, res := range resolvers {
-		go lookupAsync(ctx, res, host, ch)
-	}
-
-	var errs []error
-	for n := 0; n < size; n++ {
-		result := <-ch
-
-		if result.err != nil {
-			errs = append(errs, result.err)
-
-			continue
-		}
-
-		return result.address, nil
-	}
-
-	return nil, errors.List("all resolvers failed", errs...)
-}
-
-// lookupAsync tries to lookup for host ip with one Resolver and sends lookupResult to res channel
-func lookupAsync(ctx context.Context, r *Resolver, host string, res chan *lookupResult) {
-	address, err := lookup(ctx, r, host)
-	res <- &lookupResult{
-		err:     err,
-		address: address,
-	}
-}
-
-func lookup(ctx context.Context, r *Resolver, host string) ([]net.IPAddr, error) {
-	start := time.Now()
-	address, err := r.LookupIPAddr(ctx, host)
-	elapsed := time.Since(start)
-	if err != nil {
-		log.Tracef(
-			"failed to lookup for %s in %s using %s: %s",
-			host,
-			elapsed,
-			r.resolverAddress,
-			err,
-		)
-	} else {
-		log.Tracef(
-			"successfully finished lookup for %s in %s using %s. Result : %s",
-			host,
-			elapsed,
-			r.resolverAddress,
-			address,
-		)
-	}
-	return address, err
+func LookupParallel(ctx context.Context, resolvers []Resolver, host string) ([]netip.Addr, error) {
+	return bootstrap.LookupParallel(ctx, resolvers, host)
 }

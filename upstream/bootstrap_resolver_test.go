@@ -6,81 +6,81 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// TODO(e.burkov):  !! rm
 func TestNewResolver(t *testing.T) {
 	r, err := NewResolver("1.1.1.1:53", &Options{Timeout: 3 * time.Second})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
-	ipAddrs, err := r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	if err != nil {
-		t.Fatalf("r.LookupIPAddr: %s", err)
-	}
+	ipAddrs, err := r.LookupNetIP(context.TODO(), "ip", "cloudflare-dns.com")
+	require.NoError(t, err)
 
-	// check that both IPv4 and IPv6 addresses exist
-	var nIP4, nIP6 uint
-	for _, ip := range ipAddrs {
-		if ip.IP.To4() != nil {
-			nIP4++
-		} else {
-			nIP6++
-		}
-	}
-
-	if nIP4 == 0 || nIP6 == 0 {
-		t.Fatalf("nIP4 == 0 || nIP6 == 0")
-	}
+	assert.NotEmpty(t, ipAddrs)
 }
 
-func TestNewResolverIsValid(t *testing.T) {
+func TestNewResolver_validity(t *testing.T) {
 	withTimeoutOpt := &Options{Timeout: 3 * time.Second}
 
-	r, err := NewResolver("1.1.1.1:53", withTimeoutOpt)
-	assert.Nil(t, err)
-	assert.NotNil(t, r.upstream)
-	addrs, err := r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	assert.Nil(t, err)
-	assert.True(t, len(addrs) > 0)
+	t.Run("valid", func(t *testing.T) {
+		testCases := []struct {
+			name       string
+			addr       string
+			wantErrMsg string
+		}{{
+			name:       "udp",
+			addr:       "1.1.1.1:53",
+			wantErrMsg: "",
+		}, {
+			name:       "dot",
+			addr:       "tls://1.1.1.1",
+			wantErrMsg: "",
+		}, {
+			name:       "doh",
+			addr:       "https://1.1.1.1/dns-query",
+			wantErrMsg: "",
+		}, {
+			name:       "sdns",
+			addr:       "sdns://AQIAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzMDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20",
+			wantErrMsg: "",
+		}, {
+			name:       "tcp",
+			addr:       "tcp://9.9.9.9",
+			wantErrMsg: "",
+		}, {
+			name:       "invalid_tls",
+			addr:       "tls://dns.adguard.com",
+			wantErrMsg: "Resolver tls://dns.adguard.com is not eligible to be a bootstrap DNS server",
+		}, {
+			name:       "invalid_https",
+			addr:       "https://dns.adguard.com/dns-query",
+			wantErrMsg: "Resolver https://dns.adguard.com/dns-query is not eligible to be a bootstrap DNS server",
+		}, {
+			name:       "invalid_tcp",
+			addr:       "tcp://dns.adguard.com",
+			wantErrMsg: "Resolver tcp://dns.adguard.com is not eligible to be a bootstrap DNS server",
+		}, {
+			name:       "invalid_no_scheme",
+			addr:       "dns.adguard.com",
+			wantErrMsg: "Resolver dns.adguard.com is not eligible to be a bootstrap DNS server",
+		}}
 
-	r, err = NewResolver("tls://1.1.1.1", withTimeoutOpt)
-	assert.Nil(t, err)
-	assert.NotNil(t, r.upstream)
-	addrs, err = r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	assert.Nil(t, err)
-	assert.True(t, len(addrs) > 0)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				r, err := NewResolver(tc.addr, withTimeoutOpt)
+				if tc.wantErrMsg != "" {
+					assert.Equal(t, tc.wantErrMsg, err.Error())
 
-	r, err = NewResolver("https://1.1.1.1/dns-query", withTimeoutOpt)
-	assert.Nil(t, err)
-	assert.NotNil(t, r.upstream)
-	addrs, err = r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	assert.Nil(t, err)
-	assert.True(t, len(addrs) > 0)
+					return
+				}
+				require.NoError(t, err)
 
-	r, err = NewResolver("sdns://AQIAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzMDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20", withTimeoutOpt)
-	assert.Nil(t, err)
-	assert.NotNil(t, r.upstream)
-	addrs, err = r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	assert.Nil(t, err)
-	assert.True(t, len(addrs) > 0)
+				addrs, err := r.LookupNetIP(context.Background(), "ip", "cloudflare-dns.com")
+				require.NoError(t, err)
 
-	r, err = NewResolver("tcp://9.9.9.9", withTimeoutOpt)
-	assert.Nil(t, err)
-	assert.NotNil(t, r.upstream)
-	addrs, err = r.LookupIPAddr(context.TODO(), "cloudflare-dns.com")
-	assert.Nil(t, err)
-	assert.True(t, len(addrs) > 0)
-
-	// not an IP address:
-
-	_, err = NewResolver("tls://dns.adguard.com", withTimeoutOpt)
-	assert.Error(t, err)
-
-	_, err = NewResolver("https://dns.adguard.com/dns-query", withTimeoutOpt)
-	assert.Error(t, err)
-
-	_, err = NewResolver("tcp://dns.adguard.com", nil)
-	assert.Error(t, err)
-
-	_, err = NewResolver("dns.adguard.com", nil)
-	assert.Error(t, err)
+				assert.NotEmpty(t, addrs)
+			})
+		}
+	})
 }

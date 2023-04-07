@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -13,11 +14,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Resolver is wrapper for resolver and it's address
-type Resolver struct {
-	resolver        *net.Resolver // net.Resolver
-	resolverAddress string        // Resolver's address
-	upstream        Upstream
+type upstreamResolver struct {
+	ups Upstream
 }
 
 // NewResolver creates an instance of a Resolver structure with defined net.Resolver and it's address
@@ -25,40 +23,39 @@ type Resolver struct {
 // The host in the address parameter of Dial func will always be a literal IP address (from documentation)
 // options are the upstream customization options, nil means use default
 // options.
-func NewResolver(resolverAddress string, options *Options) (*Resolver, error) {
-	r := &Resolver{}
-
-	// set default net.Resolver as a resolver if resolverAddress is empty
+func NewResolver(resolverAddress string, options *Options) (Resolver, error) {
 	if resolverAddress == "" {
-		r.resolver = &net.Resolver{}
-		return r, nil
+		return &net.Resolver{}, nil
 	}
 
 	if options == nil {
 		options = &Options{}
 	}
 
-	r.resolverAddress = resolverAddress
 	var err error
 	opts := &Options{
 		Timeout:                 options.Timeout,
 		VerifyServerCertificate: options.VerifyServerCertificate,
 	}
-	r.upstream, err = AddressToUpstream(resolverAddress, opts)
+
+	ur := upstreamResolver{}
+	ur.ups, err = AddressToUpstream(resolverAddress, opts)
 	if err != nil {
 		log.Error("AddressToUpstream: %s", err)
-		return r, fmt.Errorf("AddressToUpstream: %s", err)
+
+		return ur, fmt.Errorf("AddressToUpstream: %s", err)
 	}
 
 	// Validate the bootstrap resolver. It must be either a plain DNS resolver.
 	// Or a DoT/DoH resolver with an IP address (not a hostname).
-	if !isResolverValidBootstrap(r.upstream) {
-		r.upstream = nil
+	if !isResolverValidBootstrap(ur.ups) {
+		ur.ups = nil
 		log.Error("Resolver %s is not eligible to be a bootstrap DNS server", resolverAddress)
-		return r, fmt.Errorf("Resolver %s is not eligible to be a bootstrap DNS server", resolverAddress)
+
+		return ur, fmt.Errorf("Resolver %s is not eligible to be a bootstrap DNS server", resolverAddress)
 	}
 
-	return r, nil
+	return ur, nil
 }
 
 // isResolverValidBootstrap checks if the upstream is eligible to be a bootstrap
@@ -119,71 +116,86 @@ type resultError struct {
 	err  error
 }
 
-func (r *Resolver) resolve(host string, qtype uint16, ch chan *resultError) {
-	req := dns.Msg{}
-	req.Id = dns.Id()
-	req.RecursionDesired = true
-	req.Question = []dns.Question{
-		{
+func (r upstreamResolver) resolve(host string, qtype uint16, ch chan *resultError) {
+	req := &dns.Msg{
+		MsgHdr: dns.MsgHdr{
+			Id:               dns.Id(),
+			RecursionDesired: true,
+		},
+		Question: []dns.Question{{
 			Name:   host,
 			Qtype:  qtype,
 			Qclass: dns.ClassINET,
-		},
+		}},
 	}
-	resp, err := r.upstream.Exchange(&req)
+
+	resp, err := r.ups.Exchange(req)
 	ch <- &resultError{resp, err}
 }
 
-// LookupIPAddr returns result of LookupIPAddr method of Resolver's net.Resolver
-func (r *Resolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
-	if r.resolver != nil {
-		// use system resolver
-		addrs, err := r.resolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use the previous dnsproxy behavior: prefer IPv4 by default.
-		//
-		// TODO(a.garipov): Consider unexporting this entire method or
-		// documenting that the order of addrs is undefined.
-		proxynetutil.SortIPAddrs(addrs, false)
-
-		return addrs, nil
-	}
-
-	if r.upstream == nil || len(host) == 0 {
-		return []net.IPAddr{}, nil
+// LookupNetIP implements the [Resolver] interface for upstreamResolver.
+//
+// TODO(e.burkov):  !! sort results of usages
+func (r upstreamResolver) LookupNetIP(
+	ctx context.Context,
+	network string,
+	host string,
+) (ipAddrs []netip.Addr, err error) {
+	// TODO(e.burkov):  Investigate when r.ups is nil and why.
+	if r.ups == nil || host == "" {
+		return []netip.Addr{}, nil
 	}
 
 	if host[:1] != "." {
 		host += "."
 	}
 
-	ch := make(chan *resultError)
-	go r.resolve(host, dns.TypeA, ch)
-	go r.resolve(host, dns.TypeAAAA, ch)
+	var resCh chan *resultError
+	n := 1
+	switch network {
+	case "ip4":
+		resCh = make(chan *resultError, n)
 
-	var ipAddrs []net.IPAddr
+		go r.resolve(host, dns.TypeA, resCh)
+	case "ip6":
+		resCh = make(chan *resultError, n)
+
+		go r.resolve(host, dns.TypeAAAA, resCh)
+	case "ip":
+		n = 2
+		resCh = make(chan *resultError, n)
+
+		go r.resolve(host, dns.TypeA, resCh)
+		go r.resolve(host, dns.TypeAAAA, resCh)
+	default:
+		return []netip.Addr{}, fmt.Errorf("unsupported network: %s", network)
+	}
+
 	var errs []error
-	for n := 0; n < 2; n++ {
-		re := <-ch
+	for ; n > 0; n-- {
+		re := <-resCh
 		if re.err != nil {
 			errs = append(errs, re.err)
-		} else {
-			proxyutil.AppendIPAddrs(&ipAddrs, re.resp.Answer)
+
+			continue
+		}
+
+		for _, rr := range re.resp.Answer {
+			if addr, ok := netip.AddrFromSlice(proxyutil.IPFromRR(rr)); ok {
+				ipAddrs = append(ipAddrs, addr)
+			}
 		}
 	}
 
-	if len(ipAddrs) == 0 && len(errs) != 0 {
-		return []net.IPAddr{}, errs[0]
+	if len(ipAddrs) == 0 && len(errs) > 0 {
+		return []netip.Addr{}, errs[0]
 	}
 
 	// Use the previous dnsproxy behavior: prefer IPv4 by default.
 	//
 	// TODO(a.garipov): Consider unexporting this entire method or documenting
 	// that the order of addrs is undefined.
-	proxynetutil.SortIPAddrs(ipAddrs, false)
+	proxynetutil.SortNetIPAddrs(ipAddrs, false)
 
 	return ipAddrs, nil
 }
