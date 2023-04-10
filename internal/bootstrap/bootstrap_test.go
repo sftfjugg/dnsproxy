@@ -25,7 +25,8 @@ const testTimeout = 1 * time.Second
 func newListener(t testing.TB, network string, sig chan net.Addr) (l net.Listener) {
 	t.Helper()
 
-	l, err := net.Listen(network, ":0")
+	// TODO(e.burkov):  Listen IPv6 as well, when the CI adds IPv6 interfaces.
+	l, err := net.Listen(network, "127.0.0.1:0")
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, l.Close)
 
@@ -58,10 +59,6 @@ func TestResolveDialContext(t *testing.T) {
 	}{{
 		name:       "v4",
 		addresses:  []netip.Addr{netutil.IPv4Localhost()},
-		preferIPv6: false,
-	}, {
-		name:       "v6",
-		addresses:  []netip.Addr{netutil.IPv6Localhost()},
 		preferIPv6: false,
 	}, {
 		name:       "both_prefer_v6",

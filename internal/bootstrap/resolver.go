@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"net"
 	"net/netip"
 	"time"
 
@@ -15,6 +16,9 @@ type Resolver interface {
 	// be one of "ip", "ip4" or "ip6".
 	LookupNetIP(ctx context.Context, network string, host string) (addrs []netip.Addr, err error)
 }
+
+// type check
+var _ Resolver = &net.Resolver{}
 
 // ErrNoResolvers is returned when zero resolvers specified.
 const ErrNoResolvers = errors.Error("no resolvers specified")
