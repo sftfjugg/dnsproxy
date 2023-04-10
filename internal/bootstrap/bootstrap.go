@@ -1,5 +1,5 @@
 // Package bootstrap provides types and functions to resolve upstream hostnames
-// and dial retrieved addresses.
+// and to dial retrieved addresses.
 package bootstrap
 
 import (
