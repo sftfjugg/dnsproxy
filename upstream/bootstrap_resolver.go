@@ -14,15 +14,14 @@ import (
 	"github.com/miekg/dns"
 )
 
-type upstreamResolver struct {
-	ups Upstream
-}
-
-// NewResolver creates an instance of a Resolver structure with defined net.Resolver and it's address
-// resolverAddress -- is address of net.Resolver
-// The host in the address parameter of Dial func will always be a literal IP address (from documentation)
-// options are the upstream customization options, nil means use default
-// options.
+// NewResolver creates an instance of a Resolver structure with defined
+// net.Resolver and it's address resolverAddress -- is address of net.Resolver
+// The host in the address parameter of Dial func will always be a literal IP
+// address (from documentation) options are the upstream customization options,
+// nil means use default options.
+//
+// TODO(e.burkov):  Require resolverAddress not being empty and rename into
+// NewUpstreamResolver.
 func NewResolver(resolverAddress string, options *Options) (Resolver, error) {
 	if resolverAddress == "" {
 		return &net.Resolver{}, nil
@@ -39,7 +38,7 @@ func NewResolver(resolverAddress string, options *Options) (Resolver, error) {
 	}
 
 	ur := upstreamResolver{}
-	ur.ups, err = AddressToUpstream(resolverAddress, opts)
+	ur.Upstream, err = AddressToUpstream(resolverAddress, opts)
 	if err != nil {
 		log.Error("AddressToUpstream: %s", err)
 
@@ -48,8 +47,8 @@ func NewResolver(resolverAddress string, options *Options) (Resolver, error) {
 
 	// Validate the bootstrap resolver. It must be either a plain DNS resolver.
 	// Or a DoT/DoH resolver with an IP address (not a hostname).
-	if !isResolverValidBootstrap(ur.ups) {
-		ur.ups = nil
+	if !isResolverValidBootstrap(ur.Upstream) {
+		ur.Upstream = nil
 		log.Error("Resolver %s is not eligible to be a bootstrap DNS server", resolverAddress)
 
 		return ur, fmt.Errorf("Resolver %s is not eligible to be a bootstrap DNS server", resolverAddress)
@@ -111,38 +110,25 @@ func isResolverValidBootstrap(upstream Upstream) bool {
 	return ip != nil
 }
 
-type resultError struct {
-	resp *dns.Msg
-	err  error
+// upstreamResolver is a wrapper around Upstream that implements the
+// [bootstrap.Resolver] interface.
+type upstreamResolver struct {
+	// Upstream is embedded here to avoid implementing another Upstream's
+	// methods.
+	Upstream
 }
 
-func (r upstreamResolver) resolve(host string, qtype uint16, ch chan *resultError) {
-	req := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			RecursionDesired: true,
-		},
-		Question: []dns.Question{{
-			Name:   host,
-			Qtype:  qtype,
-			Qclass: dns.ClassINET,
-		}},
-	}
-
-	resp, err := r.ups.Exchange(req)
-	ch <- &resultError{resp, err}
-}
+// type check
+var _ Resolver = upstreamResolver{}
 
 // LookupNetIP implements the [Resolver] interface for upstreamResolver.
-//
-// TODO(e.burkov):  !! sort results of usages
 func (r upstreamResolver) LookupNetIP(
 	ctx context.Context,
 	network string,
 	host string,
 ) (ipAddrs []netip.Addr, err error) {
 	// TODO(e.burkov):  Investigate when r.ups is nil and why.
-	if r.ups == nil || host == "" {
+	if r.Upstream == nil || host == "" {
 		return []netip.Addr{}, nil
 	}
 
@@ -156,17 +142,17 @@ func (r upstreamResolver) LookupNetIP(
 	case "ip4":
 		resCh = make(chan *resultError, n)
 
-		go r.resolve(host, dns.TypeA, resCh)
+		go r.resolveAsync(host, dns.TypeA, resCh)
 	case "ip6":
 		resCh = make(chan *resultError, n)
 
-		go r.resolve(host, dns.TypeAAAA, resCh)
+		go r.resolveAsync(host, dns.TypeAAAA, resCh)
 	case "ip":
 		n = 2
 		resCh = make(chan *resultError, n)
 
-		go r.resolve(host, dns.TypeA, resCh)
-		go r.resolve(host, dns.TypeAAAA, resCh)
+		go r.resolveAsync(host, dns.TypeA, resCh)
+		go r.resolveAsync(host, dns.TypeAAAA, resCh)
 	default:
 		return []netip.Addr{}, fmt.Errorf("unsupported network: %s", network)
 	}
@@ -198,4 +184,31 @@ func (r upstreamResolver) LookupNetIP(
 	proxynetutil.SortNetIPAddrs(ipAddrs, false)
 
 	return ipAddrs, nil
+}
+
+// TODO(e.burkov):  !! use
+func (r upstreamResolver) resolve(host string, qtype uint16) (resp *dns.Msg, err error) {
+	req := &dns.Msg{
+		MsgHdr: dns.MsgHdr{
+			Id:               dns.Id(),
+			RecursionDesired: true,
+		},
+		Question: []dns.Question{{
+			Name:   host,
+			Qtype:  qtype,
+			Qclass: dns.ClassINET,
+		}},
+	}
+
+	return r.Exchange(req)
+}
+
+type resultError struct {
+	resp *dns.Msg
+	err  error
+}
+
+func (r upstreamResolver) resolveAsync(host string, qtype uint16, ch chan *resultError) {
+	resp, err := r.resolve(host, qtype)
+	ch <- &resultError{resp, err}
 }

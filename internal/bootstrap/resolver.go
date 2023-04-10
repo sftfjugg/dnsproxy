@@ -16,6 +16,9 @@ type Resolver interface {
 	LookupNetIP(ctx context.Context, network string, host string) (addrs []netip.Addr, err error)
 }
 
+// ErrNoResolvers is returned when zero resolvers specified.
+const ErrNoResolvers = errors.Error("no resolvers specified")
+
 // LookupParallel tries to lookup for ip of host with all resolvers
 // concurrently.
 func LookupParallel(
@@ -26,13 +29,14 @@ func LookupParallel(
 	resolversNum := len(resolvers)
 	switch resolversNum {
 	case 0:
-		return nil, errors.Error("no resolvers specified")
+		return nil, ErrNoResolvers
 	case 1:
-		addrs, err = lookup(ctx, resolvers[0], host)
-
-		return addrs, err
+		return lookup(ctx, resolvers[0], host)
 	default:
 		// Go on.
+		//
+		// TODO(e.burkov):  Think about context cancellation after receiving the
+		// first successful result.
 	}
 
 	// Size of channel must accommodate results of lookups from all resolvers,
@@ -64,8 +68,10 @@ type lookupResult struct {
 }
 
 // lookupAsync tries to lookup for ip of host with r and sends the result into
-// resCh.
+// resCh.  It's inteneded to be used as a goroutine.
 func lookupAsync(ctx context.Context, r Resolver, host string, resCh chan *lookupResult) {
+	defer log.OnPanic("concurrent lookup")
+
 	addrs, err := lookup(ctx, r, host)
 	resCh <- &lookupResult{
 		err:   err,

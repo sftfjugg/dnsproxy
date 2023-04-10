@@ -102,7 +102,7 @@ func newBootstrapperResolved(upsURL *url.URL, options *Options) (*bootstrapper, 
 func newBootstrapper(u *url.URL, options *Options) (b *bootstrapper, err error) {
 	resolvers := []Resolver{}
 	if len(options.Bootstrap) != 0 {
-		// Create a list of resolvers for parallel lookup
+		// Create a list of resolvers for parallel lookup.
 		for _, boot := range options.Bootstrap {
 			var r Resolver
 			r, err = NewResolver(boot, options)
