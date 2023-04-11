@@ -30,10 +30,10 @@ func newListener(t testing.TB, network string, sig chan net.Addr) (ipp netip.Add
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, l.Close)
 
-	pt := testutil.PanicT{}
 	go func() {
-		for c, listenErr := l.Accept(); !errors.Is(err, net.ErrClosed); c, listenErr = l.Accept() {
-			require.NoError(pt, listenErr)
+		pt := testutil.PanicT{}
+		for c, lerr := l.Accept(); !errors.Is(lerr, net.ErrClosed); c, lerr = l.Accept() {
+			require.NoError(pt, lerr)
 
 			testutil.RequireSend(pt, sig, c.LocalAddr(), testTimeout)
 
