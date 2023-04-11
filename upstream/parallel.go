@@ -150,6 +150,7 @@ func exchangeAsync(u Upstream, req *dns.Msg, respCh chan *exchangeResult) {
 // exchangeAndLog wraps the [Upstream.Exchange] method with logging.
 func exchangeAndLog(u Upstream, req *dns.Msg) (resp *dns.Msg, err error) {
 	addr := u.Address()
+	req = req.Copy()
 
 	start := time.Now()
 	reply, err := u.Exchange(req)
