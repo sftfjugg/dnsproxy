@@ -21,9 +21,9 @@ type Resolver interface {
 var _ Resolver = &net.Resolver{}
 
 // ErrNoResolvers is returned when zero resolvers specified.
-const ErrNoResolvers = errors.Error("no resolvers specified")
+const ErrNoResolvers errors.Error = "no resolvers specified"
 
-// LookupParallel tries to lookup for ip of host with all resolvers
+// LookupParallel performs lookup for IP address of host with all resolvers
 // concurrently.
 func LookupParallel(
 	ctx context.Context,
@@ -38,9 +38,6 @@ func LookupParallel(
 		return lookup(ctx, resolvers[0], host)
 	default:
 		// Go on.
-		//
-		// TODO(e.burkov):  Think about context cancellation after receiving the
-		// first successful result.
 	}
 
 	// Size of channel must accommodate results of lookups from all resolvers,
@@ -53,15 +50,14 @@ func LookupParallel(
 	var errs []error
 	for n := 0; n < resolversNum; n++ {
 		result := <-ch
-		if result.err != nil {
-			errs = append(errs, result.err)
-
-			continue
+		if result.err == nil {
+			return result.addrs, nil
 		}
 
-		return result.addrs, nil
+		errs = append(errs, result.err)
 	}
 
+	// TODO(e.burkov):  Use [errors.Join] in Go 1.20.
 	return nil, errors.List("all resolvers failed", errs...)
 }
 
@@ -74,7 +70,7 @@ type lookupResult struct {
 // lookupAsync tries to lookup for ip of host with r and sends the result into
 // resCh.  It's inteneded to be used as a goroutine.
 func lookupAsync(ctx context.Context, r Resolver, host string, resCh chan *lookupResult) {
-	defer log.OnPanic("concurrent lookup")
+	defer log.OnPanic("parallel lookup")
 
 	addrs, err := lookup(ctx, r, host)
 	resCh <- &lookupResult{
@@ -89,9 +85,9 @@ func lookup(ctx context.Context, r Resolver, host string) (addrs []netip.Addr, e
 	addrs, err = r.LookupNetIP(ctx, "ip", host)
 	elapsed := time.Since(start)
 	if err != nil {
-		log.Debug("lookup for %s failed in %s: %s", host, elapsed, err)
+		log.Debug("parallel lookup: lookup for %s failed in %s: %s", host, elapsed, err)
 	} else {
-		log.Debug("lookup for %s succeeded in %s, result: %s", host, elapsed, addrs)
+		log.Debug("parallel lookup: lookup for %s succeeded in %s: %s", host, elapsed, addrs)
 	}
 
 	return addrs, err

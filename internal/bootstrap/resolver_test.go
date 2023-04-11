@@ -2,6 +2,7 @@ package bootstrap_test
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -83,10 +84,8 @@ func TestLookupParallel(t *testing.T) {
 	})
 
 	t.Run("all_errors", func(t *testing.T) {
-		wantErrMsg := `all resolvers failed: 3 errors: ` +
-			`"` + assert.AnError.Error() + `", ` +
-			`"` + assert.AnError.Error() + `", ` +
-			`"` + assert.AnError.Error() + `"`
+		err := assert.AnError
+		wantErrMsg := fmt.Sprintf("all resolvers failed: 3 errors: %[1]q, %[1]q, %[1]q", err)
 
 		r := &testResolver{
 			onLookupNetIP: func(_ context.Context, network, host string) ([]netip.Addr, error) {

@@ -18,11 +18,10 @@ import (
 // Resolver is an alias for bootstrap.Resolver to avoid the import cycle.
 type Resolver = bootstrap.Resolver
 
-// NewResolver creates an instance of a Resolver structure with defined
-// net.Resolver and it's address resolverAddress -- is address of net.Resolver
-// The host in the address parameter of Dial func will always be a literal IP
-// address (from documentation) options are the upstream customization options,
-// nil means use default options.
+// NewResolver creates a Resolver.  resolverAddress should be either a plain IP
+// address or empty.  If it is empty, the default [net.Resolver] is used, and
+// sorting the resolved addresses is the caller's responsibility.  Otherwise, it
+// creates an Upstream using opts.
 //
 // TODO(e.burkov):  Require resolverAddress not being empty and rename into
 // NewUpstreamResolver.
@@ -45,7 +44,7 @@ func NewResolver(resolverAddress string, opts *Options) (r Resolver, err error) 
 	ur.Upstream, err = AddressToUpstream(resolverAddress, upsOpts)
 	if err != nil {
 		err = fmt.Errorf("creating upstream: %w", err)
-		log.Error("%s", err)
+		log.Error("upstream bootstrap: %s", err)
 
 		return ur, err
 	}
@@ -55,7 +54,7 @@ func NewResolver(resolverAddress string, opts *Options) (r Resolver, err error) 
 	if !isResolverValidBootstrap(ur.Upstream) {
 		ur.Upstream = nil
 		err = fmt.Errorf("resolver %q is not a valid bootstrap DNS server", resolverAddress)
-		log.Error("%s", err)
+		log.Error("upstream bootstrap: %s", err)
 	}
 
 	return ur, err
@@ -118,7 +117,8 @@ func isResolverValidBootstrap(upstream Upstream) bool {
 }
 
 // upstreamResolver is a wrapper around Upstream that implements the
-// [bootstrap.Resolver] interface.
+// [bootstrap.Resolver] interface.  It sorts the resolved addresses preferring
+// IPv4.
 type upstreamResolver struct {
 	// Upstream is embedded here to avoid implementing another Upstream's
 	// methods.
@@ -180,6 +180,7 @@ func (r upstreamResolver) LookupNetIP(
 		}
 	}
 
+	// TODO(e.burkov):  Use [errors.Join] in Go 1.20.
 	if len(ipAddrs) == 0 && len(errs) > 0 {
 		return []netip.Addr{}, errs[0]
 	}

@@ -67,8 +67,8 @@ func ResolveDialContext(
 	return NewDialContext(timeout, addrs...), nil
 }
 
-// NewDialContext returns a DialHandler that dials to the addresses in addrs and
-// returns the first succeeded connection.
+// NewDialContext returns a DialHandler that dials addrs and returns the first
+// successful connection.
 //
 // TODO(e.burkov):  Use in the [upstream] package.
 func NewDialContext(timeout time.Duration, addrs ...string) (h DialHandler) {
@@ -91,21 +91,19 @@ func NewDialContext(timeout time.Duration, addrs ...string) (h DialHandler) {
 		// Return first succeeded connection.  Note that we're using addrs
 		// instead of what's passed to the function.
 		for i, addr := range addrs {
-			log.Debug("dialing %s (%d/%d)", addr, i+1, l)
+			log.Debug("bootstrap: dialing %s (%d/%d)", addr, i+1, l)
 
 			start := time.Now()
 			conn, err := dialer.DialContext(ctx, network, addr)
 			elapsed := time.Since(start)
-			if err != nil {
-				log.Debug("dialing %s: connection to %s failed in %s: %s", addr, addr, elapsed, err)
-				errs = append(errs, err)
+			if err == nil {
+				log.Debug("bootstrap: connection to %s succeeded in %s", addr, addr, elapsed)
 
-				continue
+				return conn, nil
 			}
 
-			log.Debug("dialing %s: connection to %s succeeded in %s", addr, addr, elapsed)
-
-			return conn, nil
+			log.Debug("bootstrap: connection to %s failed in %s: %s", addr, addr, elapsed, err)
+			errs = append(errs, err)
 		}
 
 		// TODO(e.burkov):  Use errors.Join in Go 1.20.

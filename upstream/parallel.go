@@ -54,6 +54,7 @@ func ExchangeParallel(u []Upstream, req *dns.Msg) (reply *dns.Msg, resolved Upst
 		return nil, nil, errors.Error("none of upstream servers responded")
 	}
 
+	// TODO(e.burkov):  Use [errors.Join] in Go 1.20.
 	return nil, nil, errors.List("all upstreams failed to respond", errs...)
 }
 
@@ -119,6 +120,7 @@ func ExchangeAll(ups []Upstream, req *dns.Msg) (res []ExchangeAllResult, err err
 	}
 
 	if len(errs) == upsl {
+		// TODO(e.burkov):  Use [errors.Join] in Go 1.20.
 		return res, errors.List("all upstreams failed to exchange", errs...)
 	}
 

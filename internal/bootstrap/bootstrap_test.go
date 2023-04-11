@@ -22,7 +22,7 @@ const testTimeout = 1 * time.Second
 // newListener creates a new listener of zero address of the specified network
 // type and returns it, adding it's closing to the test cleanup.  sig is used to
 // send the address of each accepted connection and must be read properly.
-func newListener(t testing.TB, network string, sig chan net.Addr) (l net.Listener) {
+func newListener(t testing.TB, network string, sig chan net.Addr) (ipp netip.AddrPort) {
 	t.Helper()
 
 	// TODO(e.burkov):  Listen IPv6 as well, when the CI adds IPv6 interfaces.
@@ -32,8 +32,8 @@ func newListener(t testing.TB, network string, sig chan net.Addr) (l net.Listene
 
 	pt := testutil.PanicT{}
 	go func() {
-		for c, err := l.Accept(); !errors.Is(err, net.ErrClosed); c, err = l.Accept() {
-			require.NoError(pt, err)
+		for c, listenErr := l.Accept(); !errors.Is(err, net.ErrClosed); c, listenErr = l.Accept() {
+			require.NoError(pt, listenErr)
 
 			testutil.RequireSend(pt, sig, c.LocalAddr(), testTimeout)
 
@@ -41,15 +41,17 @@ func newListener(t testing.TB, network string, sig chan net.Addr) (l net.Listene
 		}
 	}()
 
-	return l
+	ipp, err = netip.ParseAddrPort(l.Addr().String())
+	require.NoError(t, err)
+
+	return ipp
 }
 
 // See the details here: https://github.com/AdguardTeam/dnsproxy/issues/18
 func TestResolveDialContext(t *testing.T) {
 	sig := make(chan net.Addr, 1)
 
-	addr := newListener(t, "tcp", sig).Addr()
-	ipp := netip.MustParseAddrPort(addr.String())
+	ipp := newListener(t, "tcp", sig)
 	port := ipp.Port()
 
 	testCases := []struct {
