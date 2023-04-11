@@ -97,12 +97,12 @@ func NewDialContext(timeout time.Duration, addrs ...string) (h DialHandler) {
 			conn, err := dialer.DialContext(ctx, network, addr)
 			elapsed := time.Since(start)
 			if err == nil {
-				log.Debug("bootstrap: connection to %s succeeded in %s", addr, addr, elapsed)
+				log.Debug("bootstrap: connection to %s succeeded in %s", addr, elapsed)
 
 				return conn, nil
 			}
 
-			log.Debug("bootstrap: connection to %s failed in %s: %s", addr, addr, elapsed, err)
+			log.Debug("bootstrap: connection to %s failed in %s: %s", addr, elapsed, err)
 			errs = append(errs, err)
 		}
 
